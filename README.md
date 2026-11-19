@@ -1,5 +1,9 @@
 # Inventory Lag Fix
 
+<a href="https://www.nexusmods.com/skyrimspecialedition/mods/199697"><img src="https://img.shields.io/badge/download-Nexus_Mods-D98F40" alt="Download on Nexus Mods"></a>
+<a href="LICENSE"><img src="https://img.shields.io/github/license/quoteproxy/InventoryLagFix" alt="MIT license"></a>
+<a href="https://buymeacoffee.com/quoteproxy"><img src="https://img.shields.io/badge/Buy_me_a_coffee-FFDD00?logo=buymeacoffee&logoColor=000" alt="Support on Buy Me a Coffee"></a>
+
 ![Inventory Lag Fix: opening the inventory with 1,159 items freezes the game for 4.2 s in vanilla and 0.27 s with this plugin](docs/images/hero.png)
 
 An SKSE plugin for Skyrim Special Edition / Anniversary Edition. If you carry a lot of items, opening the
