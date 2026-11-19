@@ -123,6 +123,10 @@ the same time.
 `build.bat` (Visual Studio 2022 or Build Tools 2022, x64). Output: `build\InventoryLagFix.dll`, also copied
 to `package\SKSE\Plugins\`.
 
+## Support
+
+All my mods are free. If this one made your game better and you'd like to say thanks, you can [buy me a coffee](https://buymeacoffee.com/quoteproxy). There are no paid perks or early access.
+
 ## License
 
 MIT
