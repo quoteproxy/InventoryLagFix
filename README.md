@@ -1,5 +1,7 @@
 # Inventory Lag Fix
 
+![Inventory Lag Fix: opening the inventory with 1,159 items freezes the game for 4.2 s in vanilla and 0.27 s with this plugin](docs/images/hero.png)
+
 An SKSE plugin for Skyrim Special Edition / Anniversary Edition. If you carry a lot of items, opening the
 inventory freezes the game for seconds, and the freeze grows quickly with every item you pick up. This
 plugin removes that freeze. It also covers the other item screens (containers, shops, gifting, the
@@ -12,6 +14,8 @@ No ESP, no scripts, nothing is written to your save. You can add or remove it at
 Measured on a real save with 1,159 items (4,876 extra-data lists), Skyrim 1.7.104 with SkyUI.
 "Frozen" is the time the game spends in frames longer than 0.1 s.
 
+![Bar chart of the time the game is frozen, vanilla vs. with this plugin, for opening the inventory, equipping, unequipping and opening the favorites menu](docs/images/menus.png)
+
 | | Vanilla | With Inventory Lag Fix |
 |---|---|---|
 | Open the inventory (first time) | 4.1 s | 0.28 s |
@@ -22,6 +26,8 @@ Measured on a real save with 1,159 items (4,876 extra-data lists), Skyrim 1.7.10
 
 The same save trimmed to fewer items (time frozen while the inventory opens, average of 2 opens):
 
+![Line chart: the vanilla freeze climbs from 0 s at 110 items to 4.2 s at 1,159 items, while with this plugin it stays at 0 s up to 802 items and reaches 0.27 s at 1,159 items](docs/images/scaling.png)
+
 | Items | 44 | 110 | 256 | 405 | 605 | 802 | 1,002 | 1,159 |
 |---|---|---|---|---|---|---|---|---|
 | Vanilla | 0 | 0 | 0.29 s | 0.56 s | 1.19 s | 2.03 s | 3.14 s | 4.16 s |
@@ -30,6 +36,8 @@ The same save trimmed to fewer items (time frozen while the inventory opens, ave
 The vanilla freeze grows much faster than the item count; with this plugin it stays small.
 
 ## Cause
+
+![The three places where the game re-reads the whole inventory: armor perk conditions (54 full scans per armor piece, 1 with this plugin), worn armor per body slot (16 scans per item card, 1 with this plugin) and building the item list (N x N item visits, N with this plugin)](docs/images/how.png)
 
 This was found by profiling and reverse engineering `SkyrimSE.exe` 1.7.104. Three places in the game read
 the whole inventory again and again, taking a lock for every extra-data list:
