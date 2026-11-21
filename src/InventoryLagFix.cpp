@@ -1,4 +1,4 @@
-// InventoryLagFix - SKSE plugin for Skyrim Special Edition / Anniversary Edition (1.6.x AE and 1.7.x)
+// InventoryLagFix - SKSE plugin for Skyrim Special Edition / Anniversary Edition (1.5.97, 1.6.x AE and 1.7.x)
 //
 // Problem: with a large inventory, opening the inventory (or any item list) freezes the game for
 // seconds. Two places in the game look for the player's worn items by walking the WHOLE inventory
@@ -35,8 +35,14 @@
 // Every cache lives for one call of the outer function (or one item-list build) on one thread.
 // All other calls run the original code unchanged.
 //
-// Safety: nothing is changed unless the IDs resolve through Address Library (format 2 for 1.6.x,
-// format 5 for 1.7.x) and the start of each hooked function matches the expected machine code.
+// Safety: nothing is changed unless the IDs resolve through Address Library (format 1 for 1.5.97,
+// format 2 for 1.6.x, format 5 for 1.7.x) and the start of each hooked function matches the expected
+// machine code.
+//
+// 1.5.97 (SE) uses its own IDs for the same functions; they were matched by code against 1.7.104. The
+// hooked functions start with the same bytes there. GetInventoryItemAt keeps its walk variables in
+// other places on SE (the current node in r13, the row counter at [rsp+0E0h]), so the two patch points
+// inside it have SE variants. SE has five of the seven item-list builders; the other two are skipped.
 // Results are written to Documents\My Games\Skyrim Special Edition\SKSE\InventoryLagFix.log
 
 #include <windows.h>
@@ -83,7 +89,7 @@ static_assert(sizeof(SKSEPluginVersionData) == 848, "SKSEPluginVersionData layou
 
 extern "C" __declspec(dllexport) SKSEPluginVersionData SKSEPlugin_Version = {
 	1,                    // dataVersion (kVersion)
-	0x01000000,           // pluginVersion 1.0.0
+	0x01010000,           // pluginVersion 1.1.0
 	"InventoryLagFix",    // name
 	"",                   // author
 	"",                   // supportEmail
@@ -95,7 +101,7 @@ extern "C" __declspec(dllexport) SKSEPluginVersionData SKSEPlugin_Version = {
 
 namespace
 {
-	constexpr const char* kVersionString = "1.0.0";
+	constexpr const char* kVersionString = "1.1.0";
 
 	enum : std::size_t
 	{
@@ -113,8 +119,13 @@ namespace
 	};
 	// Item-list builders that call GetInventoryItemAt(0), (1), (2) ... until it returns nothing and only
 	// read the inventory in between: barter, container, favorites list, gift and inventory menus.
-	const std::uint32_t kIds[kIdCount] = { 16096, 40249, 16091, 51826, 11696, 15984, 109588, 16106, 19702,
+	const std::uint32_t kIdsAE[kIdCount] = { 16096, 40249, 16091, 51826, 11696, 15984, 109588, 16106, 19702,
 		50962, 51156, 51544, 51583, 51866, 51867, 51873 };
+	// 1.5.97 (SE ID space): the same functions, matched by code against 1.7.104. SE has no counterpart for
+	// the AE inventory builders 51866 and 51867 (0 = skipped).
+	const std::uint32_t kIdsSE[kIdCount] = { 15856, 39175, 15851, 50949, 11550, 15746, 102158, 15866, 19276,
+		50018, 50227, 50650, 50686, 0, 0, 50994 };
+	const std::uint32_t* kIds = kIdsAE;  // set in SKSEPlugin_Load
 
 	constexpr std::uint32_t kContinue = 1;  // BSContainer::ForEachResult::kContinue
 
@@ -178,6 +189,43 @@ namespace
 		0x0F, 0x86                     // jbe rel32 (must point at the walk start)
 	};
 	constexpr std::size_t kBaseLoopLength = 11;
+
+	// 1.5.97 (SE) variants. The walk keeps the current node in r13 and InventoryChanges* in r14; the
+	// patch point is the load of the first node, which is also where the base-container loop jumps to.
+	const std::uint8_t kExpectWalkStartSE[] = {
+		0x33, 0xF6,                                      // xor esi, esi
+		0x4C, 0x8B, 0xB4, 0x24, 0xD0, 0x00, 0x00, 0x00,  // mov r14, [rsp+0D0h]
+		0x4D, 0x8B, 0x2E,                                // mov r13, [r14]      <- walk start
+		0x4D, 0x85, 0xED,                                // test r13, r13
+		0x0F, 0x84                                       // je ...
+	};
+	constexpr std::size_t kWalkStartOffsetSE = 10;
+	constexpr std::size_t kWalkStartLengthSE = 6;      // mov r13, [r14] / test r13, r13
+	const std::uint8_t kExpectCounterUseSE[] = { 0x8B, 0x8C, 0x24, 0xE0, 0x00, 0x00, 0x00 };  // mov ecx, [rsp+0E0h]
+	const std::uint8_t kExpectBaseLoopSE[] = {
+		0x83, 0x7C, 0x24, 0x40, 0x00,  // cmp dword [rsp+40h], 0
+		0x0F, 0x86                     // jbe rel32 (must point at the walk start)
+	};
+
+	// Where GetInventoryItemAt keeps its walk state on the running version.
+	struct ItemAtLayout
+	{
+		const std::uint8_t* walk;           // bytes around the walk start
+		std::size_t walkSize;
+		std::size_t walkOffset;             // walk start = match + walkOffset
+		std::size_t walkLength;             // bytes replaced at the walk start
+		const std::uint8_t* counter;        // a read of the row counter (must occur at least twice)
+		std::size_t counterSize;
+		const std::uint8_t* baseLoop;       // cmp dword [rsp+X], 0 / jbe walk start
+		std::size_t baseLoopSize;
+		bool se;                            // SE stub shapes (r13/r14 instead of [rsp+0F8h]/rsi)
+	};
+	const ItemAtLayout kItemAtAE = { kExpectWalkStart, sizeof(kExpectWalkStart), 0, kWalkStartLength,
+		kExpectCounterUse, sizeof(kExpectCounterUse), kExpectBaseLoop, sizeof(kExpectBaseLoop), false };
+	const ItemAtLayout kItemAtSE = { kExpectWalkStartSE, sizeof(kExpectWalkStartSE), kWalkStartOffsetSE,
+		kWalkStartLengthSE, kExpectCounterUseSE, sizeof(kExpectCounterUseSE), kExpectBaseLoopSE,
+		sizeof(kExpectBaseLoopSE), true };
+	const ItemAtLayout* g_itemAt = &kItemAtAE;  // set in SKSEPlugin_Load
 
 	using VisitWornItems_t = void (*)(void* changes, void* visitor);
 	using GetArmorValue_t = float (*)(void* player, void* entry);
@@ -786,6 +834,11 @@ namespace
 	//   mov rax, [rsi]            ; rsi = InventoryChanges*, rax = entry list
 	//   mov [rsp+0F8h], rax
 	// rsp is 16-byte aligned here; all caller-saved registers except rax are preserved.
+	// SE variant, replacing
+	//   mov r13, [r14]            ; r14 = InventoryChanges*, r13 = current node
+	//   test r13, r13
+	// and returning to the following je; the row counter is at [rsp+0E0h]. All caller-saved registers
+	// are preserved.
 	std::size_t WriteWalkStub(std::uint8_t* s, std::uintptr_t resume)
 	{
 		std::size_t i = 0;
@@ -794,6 +847,25 @@ namespace
 				s[i++] = x;
 			}
 		};
+		if (g_itemAt->se) {
+			put({ 0x50, 0x51, 0x52, 0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53 });  // push rax, rcx, rdx, r8-r11
+			put({ 0x48, 0x83, 0xEC, 0x28 });                                            // sub rsp, 28h (keeps 16-byte alignment)
+			put({ 0x4C, 0x89, 0xF1 });                                                  // mov rcx, r14
+			put({ 0x48, 0x8D, 0x94, 0x24, 0x40, 0x01, 0x00, 0x00 });                    // lea rdx, [rsp+140h] (= old [rsp+0E0h])
+			put({ 0x48, 0xB8 });                                                        // mov rax, WalkStart
+			const auto fnSE = reinterpret_cast<std::uintptr_t>(&WalkStart);
+			std::memcpy(s + i, &fnSE, 8);
+			i += 8;
+			put({ 0xFF, 0xD0 });                                                        // call rax
+			put({ 0x49, 0x89, 0xC5 });                                                  // mov r13, rax
+			put({ 0x48, 0x83, 0xC4, 0x28 });                                            // add rsp, 28h
+			put({ 0x41, 0x5B, 0x41, 0x5A, 0x41, 0x59, 0x41, 0x58, 0x5A, 0x59, 0x58 });  // pop r11-r8, rdx, rcx, rax
+			put({ 0x4D, 0x85, 0xED });                                                  // test r13, r13
+			put({ 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 });                                // jmp [rip+0] -> resume (je)
+			std::memcpy(s + i, &resume, 8);
+			i += 8;
+			return i;
+		}
 		put({ 0x51, 0x52, 0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53 });  // push rcx, rdx, r8, r9, r10, r11
 		put({ 0x48, 0x83, 0xEC, 0x20 });                                      // sub rsp, 20h
 		put({ 0x48, 0x89, 0xF1 });                                            // mov rcx, rsi
@@ -813,7 +885,7 @@ namespace
 	}
 
 	// Stub for the start of the base-container loop inside GetInventoryItemAt, replacing
-	//   cmp dword [rsp+48h], 0
+	//   cmp dword [rsp+48h], 0    (SE: [rsp+40h]; InventoryChanges* in r14 instead of rsi)
 	//   jbe walkStart
 	// rax (the loop index) and all caller-saved registers are preserved.
 	std::size_t WriteBaseLoopStub(std::uint8_t* s, std::uintptr_t cont, std::uintptr_t walkStart)
@@ -830,7 +902,11 @@ namespace
 		};
 		put({ 0x50, 0x51, 0x52, 0x41, 0x50, 0x41, 0x51, 0x41, 0x52, 0x41, 0x53 });  // push rax, rcx, rdx, r8-r11
 		put({ 0x48, 0x83, 0xEC, 0x28 });                                            // sub rsp, 28h (keeps 16-byte alignment)
-		put({ 0x48, 0x89, 0xF1 });                                                  // mov rcx, rsi
+		if (g_itemAt->se) {
+			put({ 0x4C, 0x89, 0xF1 });                                              // mov rcx, r14
+		} else {
+			put({ 0x48, 0x89, 0xF1 });                                              // mov rcx, rsi
+		}
 		put({ 0x49, 0xBB });                                                        // mov r11, SkipBaseRows
 		abs(reinterpret_cast<std::uintptr_t>(&SkipBaseRows));
 		put({ 0x41, 0xFF, 0xD3 });                                                  // call r11
@@ -838,7 +914,7 @@ namespace
 		put({ 0x48, 0x8D, 0x64, 0x24, 0x28 });                                      // lea rsp, [rsp+28h] (flags kept)
 		put({ 0x41, 0x5B, 0x41, 0x5A, 0x41, 0x59, 0x41, 0x58, 0x5A, 0x59, 0x58 });  // pop r11-r8, rdx, rcx, rax
 		put({ 0x75, 0x15 });                                                        // jnz toWalk
-		put({ 0x83, 0x7C, 0x24, 0x48, 0x00 });                                      // cmp dword [rsp+48h], 0
+		put({ 0x83, 0x7C, 0x24, g_itemAt->baseLoop[3], 0x00 });                     // cmp dword [rsp+48h (SE 40h)], 0
 		put({ 0x76, 0x0E });                                                        // jbe toWalk
 		put({ 0xFF, 0x25, 0x00, 0x00, 0x00, 0x00 });                                // jmp [rip+0] -> loop
 		abs(cont);
@@ -883,19 +959,22 @@ namespace
 			return false;
 		}
 		const std::uintptr_t end = imageBase + rf->EndAddress;
+		const ItemAtLayout& l = *g_itemAt;
 		int walks = 0, counters = 0, loops = 0;
-		for (std::uintptr_t a = fn; a + sizeof(kExpectWalkStart) <= end; ++a) {
-			if (std::memcmp(reinterpret_cast<void*>(a), kExpectWalkStart, sizeof(kExpectWalkStart)) == 0) {
-				walk = a;
+		for (std::uintptr_t a = fn; a + l.walkSize <= end; ++a) {
+			if (std::memcmp(reinterpret_cast<void*>(a), l.walk, l.walkSize) == 0) {
+				walk = a + l.walkOffset;
 				++walks;
 			}
-			if (std::memcmp(reinterpret_cast<void*>(a), kExpectCounterUse, sizeof(kExpectCounterUse)) == 0) {
+		}
+		for (std::uintptr_t a = fn; a + l.counterSize <= end; ++a) {
+			if (std::memcmp(reinterpret_cast<void*>(a), l.counter, l.counterSize) == 0) {
 				++counters;
 			}
 		}
 		if (walks == 1) {
 			for (std::uintptr_t a = fn; a + 11 <= end; ++a) {
-				if (std::memcmp(reinterpret_cast<void*>(a), kExpectBaseLoop, sizeof(kExpectBaseLoop)) == 0) {
+				if (std::memcmp(reinterpret_cast<void*>(a), l.baseLoop, l.baseLoopSize) == 0) {
 					std::int32_t rel;
 					std::memcpy(&rel, reinterpret_cast<void*>(a + 7), 4);
 					if (a + 11 + static_cast<std::intptr_t>(rel) == walk) {
@@ -916,11 +995,12 @@ namespace
 
 	bool PatchItemAtInternals(std::uintptr_t walk, std::uintptr_t loop, std::uint8_t* stubs)
 	{
-		WriteWalkStub(stubs, walk + kWalkStartLength);
+		const std::size_t walkLength = g_itemAt->walkLength;
+		WriteWalkStub(stubs, walk + walkLength);
 		WriteBaseLoopStub(stubs + 128, loop + 11, walk);
 		FlushInstructionCache(GetCurrentProcess(), stubs, 256);
 		// walk start first: the base-loop stub jumps to it
-		return PatchJump(walk, kWalkStartLength, stubs) && PatchJump(loop, 11, stubs + 128);
+		return PatchJump(walk, walkLength, stubs) && PatchJump(loop, 11, stubs + 128);
 	}
 
 	// Finds the two GetInventoryItemAt calls of one builder: the first (index 0) and the one in its loop.
@@ -1047,6 +1127,24 @@ namespace
 	}
 }
 
+// SKSE for SE 1.5.x (2.0.x) asks plugins through SKSEPlugin_Query; SKSE for AE reads SKSEPlugin_Version instead.
+struct PluginInfo
+{
+	UInt32 infoVersion;
+	const char* name;
+	UInt32 version;
+};
+
+extern "C" __declspec(dllexport) bool SKSEPlugin_Query(const SKSEInterface* skse, PluginInfo* info)
+{
+	if (info) {
+		info->infoVersion = 1;
+		info->name = "InventoryLagFix";
+		info->version = 0x01010000;
+	}
+	return skse && !skse->isEditor && (skse->runtimeVersion >> 16) == 0x0105;
+}
+
 extern "C" __declspec(dllexport) bool SKSEPlugin_Load(const SKSEInterface* skse)
 {
 	OpenLog();
@@ -1067,9 +1165,14 @@ extern "C" __declspec(dllexport) bool SKSEPlugin_Load(const SKSEInterface* skse)
 	g_logStats = IniBool(L"General", L"bLogStats", false) || g_verify;
 
 	const UInt32 v = skse->runtimeVersion;
+	const bool se = (v >> 16) == 0x0105;  // 1.5.x: SE ID space and Address Library file name
+	kIds = se ? kIdsSE : kIdsAE;
+	g_itemAt = se ? &kItemAtSE : &kItemAtAE;
 	wchar_t libName[96];
-	std::swprintf(libName, std::size(libName), L"versionlib-%u-%u-%u-%u.bin", v >> 24, (v >> 16) & 0xFF, (v >> 4) & 0xFFF, v & 0xF);
-	Log("runtime %u.%u.%u.%u, address library: %ls", v >> 24, (v >> 16) & 0xFF, (v >> 4) & 0xFFF, v & 0xF, libName);
+	std::swprintf(libName, std::size(libName), se ? L"version-%u-%u-%u-%u.bin" : L"versionlib-%u-%u-%u-%u.bin", v >> 24,
+		(v >> 16) & 0xFF, (v >> 4) & 0xFFF, v & 0xF);
+	Log("runtime %u.%u.%u.%u (%s), address library: %ls", v >> 24, (v >> 16) & 0xFF, (v >> 4) & 0xFFF, v & 0xF,
+		se ? "SE" : "AE", libName);
 
 	std::uint64_t off[kIdCount] = {};
 	AddressLibrary al;
@@ -1128,6 +1231,9 @@ extern "C" __declspec(dllexport) bool SKSEPlugin_Load(const SKSEInterface* skse)
 			   FindItemAtPatchPoints(at(kGetItemAt), walk, loop, base) && PatchItemAtInternals(walk, loop, stubs + 320)) {
 		int builders = 0;
 		for (std::size_t i = kListers; i < kIdCount; ++i) {
+			if (!kIds[i]) {
+				continue;  // no such builder on this runtime
+			}
 			if (FindListSites(at(i), at(kGetItemAt), static_cast<int>(i))) {
 				++builders;
 			} else {

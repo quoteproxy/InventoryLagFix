@@ -1,6 +1,8 @@
-// Minimal reader for Address Library for SKSE Plugins (post-AE ID space).
-//   format 2: Skyrim AE 1.6.x  (delta-encoded stream, versionlib-1-6-*.bin)
-//   format 5: Skyrim 1.7.x     (dense table of uint32 offsets indexed by ID)
+// Minimal reader for Address Library for SKSE Plugins.
+//   format 1: Skyrim SE 1.5.x  (delta-encoded stream, version-1-5-*.bin; SE ID space)
+//   format 2: Skyrim AE 1.6.x  (same encoding, versionlib-1-6-*.bin; AE ID space)
+//   format 5: Skyrim 1.7.x     (dense table of uint32 offsets indexed by ID; AE ID space)
+// An ID of 0 means "not used on this runtime" and is skipped.
 #pragma once
 
 #include <cstdint>
@@ -30,7 +32,7 @@ public:
 		bool ok = false;
 		if (format == 5) {
 			ok = ResolveFormat5(ids, count, outOffsets);
-		} else if (format == 2) {
+		} else if (format == 2 || format == 1) {  // format 1 (SE 1.5.x) uses the same encoding as format 2
 			ok = ResolveFormat2(ids, count, outOffsets);
 		} else {
 			error = "unsupported address library format";
@@ -40,7 +42,7 @@ public:
 			return false;
 		}
 		for (std::size_t i = 0; i < count; ++i) {
-			if (!outOffsets[i]) {
+			if (ids[i] && !outOffsets[i]) {  // id 0 = not used on this runtime
 				error = "id not found in address library";
 				return false;
 			}
@@ -135,7 +137,10 @@ private:
 			return false;
 		}
 		std::uint64_t prevId = 0, prevOff = 0;
-		std::size_t found = 0;
+		std::size_t found = 0, wanted = 0;
+		for (std::size_t i = 0; i < count; ++i) {
+			wanted += ids[i] ? 1 : 0;
+		}
 		for (std::int32_t k = 0; k < addrCount && !overrun_; ++k) {
 			const auto type = Take<std::uint8_t>();
 			const unsigned lo = type & 0xF;
@@ -168,12 +173,12 @@ private:
 				off *= static_cast<std::uint64_t>(ptrSize);
 			}
 			for (std::size_t i = 0; i < count; ++i) {
-				if (ids[i] == id && !out[i]) {
+				if (ids[i] && ids[i] == id && !out[i]) {
 					out[i] = off;
 					++found;
 				}
 			}
-			if (found == count) {
+			if (found == wanted) {
 				break;
 			}
 			prevId = id;

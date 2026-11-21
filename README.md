@@ -6,7 +6,7 @@
 
 ![Inventory Lag Fix: opening the inventory with 1,159 items freezes the game for 4.2 s in vanilla and 0.27 s with this plugin](docs/images/hero.png)
 
-An SKSE plugin for Skyrim Special Edition / Anniversary Edition. If you carry a lot of items, opening the
+An SKSE plugin for Skyrim Special Edition / Anniversary Edition (1.5.97, 1.6.x and 1.7.x). If you carry a lot of items, opening the
 inventory freezes the game for seconds, and the freeze grows quickly with every item you pick up. This
 plugin removes that freeze. It also covers the other item screens (containers, shops, gifting, the
 favorites menu) and the list refresh after you equip something inside the inventory.
@@ -39,6 +39,20 @@ The same save trimmed to fewer items (time frozen while the inventory opens, ave
 
 The vanilla freeze grows much faster than the item count; with this plugin it stays small.
 
+### Special Edition 1.5.97
+
+Measured on 1.5.97 without other mods (vanilla UI), with 1,142 items added from the console. Time frozen
+while the screen opens, 3 opens each:
+
+| | Vanilla | With Inventory Lag Fix |
+|---|---|---|
+| Inventory | 0.15–0.16 s | 0 |
+| Container | 0.15–0.16 s | 0 |
+| Shop | 0.17–0.19 s | 0 |
+
+This is a different setup from the 1.7.104 save above, so the two sets of numbers are not a comparison
+between game versions.
+
 ## Cause
 
 ![The three places where the game re-reads the whole inventory: armor perk conditions (54 full scans per armor piece, 1 with this plugin), worn armor per body slot (16 scans per item card, 1 with this plugin) and building the item list (N x N item visits, N with this plugin)](docs/images/how.png)
@@ -59,6 +73,9 @@ the whole inventory again and again, taking a lock for every extra-data list:
    (ID 16106) for row 0, 1, 2, ... until it returns nothing, and each call counts from the first item
    again. A list of N rows costs N x N item visits.
 
+The IDs above are Anniversary Edition IDs. 1.5.97 has the same functions under its own IDs (for example
+15866 for `GetInventoryItemAt`).
+
 ## How it is fixed
 
 The game's own code still does all the work. The plugin only skips work that is repeated without
@@ -75,17 +92,25 @@ anything changing in between:
    to `GetInventoryItemAt` continues its walk at the item that produced the previous row, with the row
    counter set to that item's first row. Rows from the base container (which come first) are produced by
    the unchanged code; once the position is known, that part is skipped because all its rows lie before
-   the requested one. This uses two small jumps inside the function.
+   the requested one. This uses two small jumps inside the function. On 1.5.97 the function keeps its
+   walk state in other places, so the two jumps have 1.5.97 variants there; 1.5.97 has five of the seven
+   builders.
 
 Every cache lives for one call (or one list build) on one thread and is dropped afterwards. Each thread
 keeps its own. All other calls run the original code unchanged.
 
 ## Verified against the original code
 
-`bVerify=1` runs the original code next to every cached call and compares the results (17,743 armor values,
-145,750 replayed worn-item lists, 16,608 slot lookups and 6,249 list rows). The release build was checked this way on the save
-above: 186,350 comparisons, 0 differences. It was also checked with Inventory Refresh Fix loaded at
-the same time.
+`bVerify=1` runs the original code next to every cached call and compares the results. Each release was
+checked this way:
+
+| | Armor values | Replayed worn-item lists | Slot lookups | List rows | Differences |
+|---|---|---|---|---|---|
+| 1.0.0 on 1.7.104 (the save above) | 17,743 | 145,750 | 16,608 | 6,249 | 0 |
+| 1.1.0 on 1.7.104 (the save above) | 22,090 | 151,262 | 21,264 | 9,476 | 0 |
+| 1.1.0 on 1.5.97 (the test setup above) | 3,433 | 121,758 | 37 | 8,011 | 0 |
+
+1.0.0 was also checked with Inventory Refresh Fix loaded at the same time.
 
 ## Safety
 
@@ -110,17 +135,24 @@ the same time.
 
 ## Requirements
 
-- [SKSE64](https://skse.silverlock.org/) for your game version
-- [Address Library for SKSE Plugins](https://www.nexusmods.com/skyrimspecialedition/mods/32444) (All in one, Anniversary Edition)
+- [SKSE64](https://skse.silverlock.org/) for your game version (2.0.20 for 1.5.97)
+- [Address Library for SKSE Plugins](https://www.nexusmods.com/skyrimspecialedition/mods/32444): "All in one
+  (Anniversary Edition)" for 1.6.x / 1.7.x, "All in one (Special Edition)" for 1.5.97
 
 ## Compatibility
 
-- Built and tested on Skyrim **1.7.104**. On other Anniversary Edition versions (1.6.x) every fix first
-  checks the game code and turns itself off if it does not match; check the log to see what was
-  installed. Special Edition 1.5.97 is not supported.
-- Tested with SkyUI.
+- Built and tested on Skyrim **1.7.104** (Anniversary Edition) and **1.5.97** (Special Edition). On other
+  versions every fix first checks the game code and turns itself off if it does not match; check the log
+  to see what was installed.
+- Tested with SkyUI on 1.7.104 and with the vanilla UI on 1.5.97.
 - Inventory Refresh Fix and SkyUI Inventory Optimizer are not needed with this plugin. Inventory Refresh
   Fix can stay installed: both were run together and results stayed the same.
+
+## Changes
+
+- **1.1.0**: Special Edition 1.5.97 support. Nothing changes on Anniversary Edition (1.6.x / 1.7.x), so
+  there is no need to update there.
+- **1.0.0**: First release.
 
 ## Building
 
