@@ -134,7 +134,8 @@ checked this way:
 | 1.2.0 on 1.6.1170 (test setup with SkyUI, forge with 10,000 recipes) | 20,020 | 811,522 | 9,198 | 2,284 | 0 |
 | 1.2.0 on 1.5.97 (test setup with SkyUI, forge with 10,000 recipes) | 7,740 | 286,792 | 28 | – | 0 |
 
-1.0.0 was also checked with Inventory Refresh Fix loaded at the same time.
+1.0.0 and 1.2.0 were also checked with Inventory Refresh Fix loaded at the same time (1.2.0 on 1.7.104),
+and 1.2.0 with SkyUI Inventory Optimizer (1.5.97 with SkyUI).
 
 ## Safety
 
@@ -169,8 +170,13 @@ checked this way:
   Edition). On other versions every fix first checks the game code and turns itself off if it does not
   match; check the log to see what was installed.
 - Tested with SkyUI on all three, and with the vanilla UI on 1.5.97.
-- Inventory Refresh Fix and SkyUI Inventory Optimizer are not needed with this plugin. Inventory Refresh
-  Fix can stay installed: both were run together and results stayed the same.
+- Inventory Refresh Fix and SkyUI Inventory Optimizer can stay installed. Each was run together with this
+  plugin (Inventory Refresh Fix on 1.7.104, SkyUI Inventory Optimizer on 1.5.97 with SkyUI) and the verify
+  mode found no differences. They target other parts of the freeze; only the item-list fix overlaps with
+  Inventory Refresh Fix.
+- On the 1.7.104 save, adding Inventory Refresh Fix on top of this plugin did not change the times, except
+  for the first inventory open after starting the game: Inventory Refresh Fix checks its own results once
+  per session, which took about 0.5 s with or without this plugin (0.77 s instead of 0.30 s).
 
 ## Changes
 
