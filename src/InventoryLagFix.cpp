@@ -12,6 +12,10 @@
 //    Fix: inside one GetArmorValue call the worn items cannot change, so the first VisitWornItems
 //    call records the entries the game visits and later calls in the same GetArmorValue call replay
 //    that list to the visitor (same entries, same order, same early-stop rule).
+//    Crafting menus (forge, workbenches, cooking pot ...) ask for one armor value per recipe while they
+//    rebuild their recipe list (ConstructibleObjectMenu, AE ID 51401 / SE ID 50510). The rebuild only
+//    reads the inventory, so inside it the recorded list is kept for all of those calls and dropped
+//    when the rebuild returns.
 //
 // 2) Worn item per body slot. For every item card the game collects the armor currently worn in
 //    each of the 32 body slots (ID 51826) and calls the worn-entry lookup (ID 16091) once per
@@ -32,7 +36,8 @@
 //    The owner's base-container rows (which come first) are produced by the unchanged code; once the
 //    walk position is known, later calls skip that part (its rows all lie before the requested one).
 //
-// Every cache lives for one call of the outer function (or one item-list build) on one thread.
+// Every cache lives for one call of the outer function (or one item-list or recipe-list build) on one
+// thread.
 // All other calls run the original code unchanged.
 //
 // Safety: nothing is changed unless the IDs resolve through Address Library (format 1 for 1.5.97,
@@ -43,6 +48,7 @@
 // hooked functions start with the same bytes there. GetInventoryItemAt keeps its walk variables in
 // other places on SE (the current node in r13, the row counter at [rsp+0E0h]), so the two patch points
 // inside it have SE variants. SE has five of the seven item-list builders; the other two are skipped.
+// The crafting recipe list rebuild starts with different bytes on SE, so it has its own expected code.
 // Results are written to Documents\My Games\Skyrim Special Edition\SKSE\InventoryLagFix.log
 
 #include <windows.h>
@@ -89,7 +95,7 @@ static_assert(sizeof(SKSEPluginVersionData) == 848, "SKSEPluginVersionData layou
 
 extern "C" __declspec(dllexport) SKSEPluginVersionData SKSEPlugin_Version = {
 	1,                    // dataVersion (kVersion)
-	0x01010000,           // pluginVersion 1.1.0
+	0x01020000,           // pluginVersion 1.2.0
 	"InventoryLagFix",    // name
 	"",                   // author
 	"",                   // supportEmail
@@ -101,7 +107,7 @@ extern "C" __declspec(dllexport) SKSEPluginVersionData SKSEPlugin_Version = {
 
 namespace
 {
-	constexpr const char* kVersionString = "1.1.0";
+	constexpr const char* kVersionString = "1.2.0";
 
 	enum : std::size_t
 	{
@@ -115,16 +121,18 @@ namespace
 		kGetItemAt,        // InventoryChanges::GetInventoryItemAt(index)
 		kGetContainer,     // TESObjectREFR::GetContainer
 		kListers,          // first of the item-list builders below
-		kIdCount = kListers + 7
+		kCraftList = kListers + 7,  // CraftingSubMenus::ConstructibleObjectMenu: rebuild of the recipe list
+		kIdCount
 	};
+	constexpr std::size_t kListerCount = 7;
 	// Item-list builders that call GetInventoryItemAt(0), (1), (2) ... until it returns nothing and only
 	// read the inventory in between: barter, container, favorites list, gift and inventory menus.
 	const std::uint32_t kIdsAE[kIdCount] = { 16096, 40249, 16091, 51826, 11696, 15984, 109588, 16106, 19702,
-		50962, 51156, 51544, 51583, 51866, 51867, 51873 };
+		50962, 51156, 51544, 51583, 51866, 51867, 51873, 51401 };
 	// 1.5.97 (SE ID space): the same functions, matched by code against 1.7.104. SE has no counterpart for
 	// the AE inventory builders 51866 and 51867 (0 = skipped).
 	const std::uint32_t kIdsSE[kIdCount] = { 15856, 39175, 15851, 50949, 11550, 15746, 102158, 15866, 19276,
-		50018, 50227, 50650, 50686, 0, 0, 50994 };
+		50018, 50227, 50650, 50686, 0, 0, 50994, 50510 };
 	const std::uint32_t* kIds = kIdsAE;  // set in SKSEPlugin_Load
 
 	constexpr std::uint32_t kContinue = 1;  // BSContainer::ForEachResult::kContinue
@@ -147,6 +155,24 @@ namespace
 		0x48, 0x8B, 0xFA                                       // mov rdi, rdx        (entry)
 	};
 	constexpr std::size_t kStealGetArmorValue = 6;
+	// Crafting recipe list rebuild (forge, workbenches, cooking pot ...). Its start differs between AE and SE.
+	const std::uint8_t kExpectCraftListAE[] = {
+		0x48, 0x89, 0x4C, 0x24, 0x08,  // mov [rsp+8], rcx
+		0x55, 0x56, 0x57,              // push rbp / push rsi / push rdi
+		0x41, 0x54, 0x41, 0x55,        // push r12 / push r13
+		0x41, 0x56, 0x41, 0x57,        // push r14 / push r15
+		0x48, 0x8D, 0x6C, 0x24, 0xD9,  // lea rbp, [rsp-27h]
+		0x48, 0x81, 0xEC, 0xB0, 0x00, 0x00, 0x00  // sub rsp, 0B0h
+	};
+	constexpr std::size_t kStealCraftListAE = 5;
+	const std::uint8_t kExpectCraftListSE[] = {
+		0x40, 0x55, 0x56, 0x57,        // push rbp / push rsi / push rdi
+		0x41, 0x54, 0x41, 0x55,        // push r12 / push r13
+		0x41, 0x56, 0x41, 0x57,        // push r14 / push r15
+		0x48, 0x8D, 0x6C, 0x24, 0xD9,  // lea rbp, [rsp-27h]
+		0x48, 0x81, 0xEC, 0xA0, 0x00, 0x00, 0x00  // sub rsp, 0A0h
+	};
+	constexpr std::size_t kStealCraftListSE = 6;
 	const std::uint8_t kExpectFindWornEntry[] = {
 		0x4C, 0x8B, 0xDC,              // mov r11, rsp
 		0x45, 0x88, 0x43, 0x18,        // mov [r11+18h], r8b
@@ -237,6 +263,7 @@ namespace
 	using GetItemAt_t = void* (*)(void* changes, std::int32_t index);
 	using GetContainer_t = void* (*)(void* ref);
 	using VisitFn_t = std::uint32_t (*)(void* visitor, void* entry);
+	using CraftList_t = void (*)(void* subMenu);
 
 	// BSSimpleList node (the list object is its own head node)
 	struct Node
@@ -258,6 +285,7 @@ namespace
 	Free_t g_free = nullptr;
 	GetItemAt_t g_origGetItemAt = nullptr;
 	GetContainer_t g_getContainer = nullptr;
+	CraftList_t g_origCraftList = nullptr;
 
 	// Return addresses of the GetInventoryItemAt calls inside the item-list builders.
 	struct ListSite
@@ -310,6 +338,7 @@ namespace
 	struct ThreadState
 	{
 		int armorDepth = 0;  // nesting depth of GetArmorValue on this thread
+		int craftDepth = 0;  // nesting depth of the crafting recipe list rebuild on this thread
 		Slot slots[kSlots];
 		std::vector<void*> verifyList;
 		int slotDepth = 0;   // nesting depth of CollectWornSlots on this thread
@@ -337,12 +366,14 @@ namespace
 		cArmorMain, cArmorOther, cWornVisits, cRecorded, cReplayed, cArmorPassthrough, cListMismatch, cValueMismatch,
 		cSlotScopes, cSlotLookups, cSlotBuilds, cSlotCandidates, cSlotPassthrough, cSlotMismatch,
 		cItemLists, cItemRows, cItemBaseItems, cItemBroken, cItemLost, cItemMismatch,
+		cCraftLists, cArmorInCraftList,
 		cCount
 	};
 	const char* const kCounterNames[cCount] = {
 		"armorValue(main)", "armorValue(other)", "wornVisits", "recorded", "replayed", "passthrough", "listMismatch", "valueMismatch",
 		"slotCards", "slotLookups", "slotBuilds", "slotCandidates", "slotPassthrough", "slotMismatch",
-		"itemLists", "itemRows", "itemListsWithBaseItems", "itemListBroken", "itemListLost", "itemRowMismatch"
+		"itemLists", "itemRows", "itemListsWithBaseItems", "itemListBroken", "itemListLost", "itemRowMismatch",
+		"craftLists", "armorValue(inCraftList)"
 	};
 	volatile LONG64 g_count[cCount] = {};
 	LONG64 g_countLogged[cCount] = {};
@@ -412,14 +443,16 @@ namespace
 		return obj ? *reinterpret_cast<std::uint32_t*>(obj + 0x14) : 0;
 	}
 
-	void MaybeLogStats()
+	void MaybeLogStats(bool force = false)
 	{
 		if (!g_logStats) {
 			return;
 		}
 		const LONG64 now = static_cast<LONG64>(GetTickCount64());
 		const LONG64 last = g_lastStatsLog;
-		if (now - last < 5000 || InterlockedCompareExchange64(&g_lastStatsLog, now, last) != last) {
+		if (force) {
+			g_lastStatsLog = now;
+		} else if (now - last < 5000 || InterlockedCompareExchange64(&g_lastStatsLog, now, last) != last) {
 			return;
 		}
 		LONG64 cur[cCount];
@@ -549,13 +582,18 @@ namespace
 		float reference = 0.0f;
 		if (outer) {
 			Count(GetCurrentThreadId() == g_mainThread ? cArmorMain : cArmorOther);
+			if (st->craftDepth > 0) {
+				Count(cArmorInCraftList);
+			}
 			if (g_verify) {
 				reference = g_origGetArmorValue(player, entry);  // depth 0: no caching
 			}
 		}
 		++st->armorDepth;
 		const float result = g_origGetArmorValue(player, entry);
-		if (--st->armorDepth == 0) {
+		// Inside a crafting list rebuild the recorded worn list stays valid until the rebuild returns: the
+		// rebuild only reads the inventory, and it asks for one armor value per recipe.
+		if (--st->armorDepth == 0 && st->craftDepth == 0) {
 			ClearSlots(st);
 		}
 		if (outer) {
@@ -567,6 +605,27 @@ namespace
 			MaybeLogStats();
 		}
 		return result;
+	}
+
+	// Crafting recipe list rebuild: one scope for all the armor values it asks for (one per recipe).
+	void Hook_CraftList(void* subMenu)
+	{
+		ThreadState* st = State();
+		if (!st) {
+			g_origCraftList(subMenu);
+			return;
+		}
+		if (st->craftDepth == 0) {
+			Count(cCraftLists);
+		}
+		++st->craftDepth;
+		g_origCraftList(subMenu);
+		if (--st->craftDepth == 0 && st->armorDepth == 0) {
+			ClearSlots(st);
+		}
+		if (st->craftDepth == 0) {
+			MaybeLogStats(true);  // one line per recipe list, so test runs always see the final counts
+		}
 	}
 
 	// ======== fix 2: worn item per body slot ========
@@ -1140,7 +1199,7 @@ extern "C" __declspec(dllexport) bool SKSEPlugin_Query(const SKSEInterface* skse
 	if (info) {
 		info->infoVersion = 1;
 		info->name = "InventoryLagFix";
-		info->version = 0x01010000;
+		info->version = 0x01020000;
 	}
 	return skse && !skse->isEditor && (skse->runtimeVersion >> 16) == 0x0105;
 }
@@ -1207,6 +1266,15 @@ extern "C" __declspec(dllexport) bool SKSEPlugin_Load(const SKSEInterface* skse)
 				   reinterpret_cast<void**>(&g_origGetArmorValue))) {
 		Log("armor perk fix OK: VisitWornItems (+%llX) cached inside GetArmorValue (+%llX)",
 			static_cast<unsigned long long>(off[kVisitWornItems]), static_cast<unsigned long long>(off[kGetArmorValue]));
+		const std::uint8_t* craftExpect = se ? kExpectCraftListSE : kExpectCraftListAE;
+		const std::size_t craftExpectSize = se ? sizeof(kExpectCraftListSE) : sizeof(kExpectCraftListAE);
+		const std::size_t craftSteal = se ? kStealCraftListSE : kStealCraftListAE;
+		if (Matches(at(kCraftList), craftExpect, craftExpectSize, "crafting recipe list", base) &&
+			Detour(at(kCraftList), craftSteal, reinterpret_cast<void*>(&Hook_CraftList), stubs + 640,
+				reinterpret_cast<void**>(&g_origCraftList))) {
+			Log("armor perk fix OK: also kept for a whole crafting recipe list (+%llX)",
+				static_cast<unsigned long long>(off[kCraftList]));
+		}
 	}
 
 	if (!wantSlots) {
@@ -1230,7 +1298,7 @@ extern "C" __declspec(dllexport) bool SKSEPlugin_Load(const SKSEInterface* skse)
 			   Matches(at(kGetItemAt), kExpectGetItemAt, sizeof(kExpectGetItemAt), "GetInventoryItemAt", base) &&
 			   FindItemAtPatchPoints(at(kGetItemAt), walk, loop, base) && PatchItemAtInternals(walk, loop, stubs + 320)) {
 		int builders = 0;
-		for (std::size_t i = kListers; i < kIdCount; ++i) {
+		for (std::size_t i = kListers; i < kListers + kListerCount; ++i) {
 			if (!kIds[i]) {
 				continue;  // no such builder on this runtime
 			}

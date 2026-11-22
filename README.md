@@ -6,10 +6,11 @@
 
 ![Inventory Lag Fix: opening the inventory with 1,159 items freezes the game for 4.2 s in vanilla and 0.27 s with this plugin](docs/images/hero.png)
 
-An SKSE plugin for Skyrim Special Edition / Anniversary Edition (1.5.97, 1.6.x and 1.7.x). If you carry a lot of items, opening the
-inventory freezes the game for seconds, and the freeze grows quickly with every item you pick up. This
-plugin removes that freeze. It also covers the other item screens (containers, shops, gifting, the
-favorites menu) and the list refresh after you equip something inside the inventory.
+An SKSE plugin for Skyrim Special Edition / Anniversary Edition (1.5.97, 1.6.x and 1.7.x). If you carry
+a lot of items, opening the inventory freezes the game for seconds, and the freeze grows quickly with
+every item you pick up. This plugin removes that freeze. It also covers the other item screens
+(containers, shops, gifting, the favorites menu), the list refresh after you equip something inside
+the inventory, and crafting menus with very large recipe lists.
 
 No ESP, no scripts, nothing is written to your save. You can add or remove it at any time.
 
@@ -53,6 +54,21 @@ while the screen opens, 3 opens each:
 This is a different setup from the 1.7.104 save above, so the two sets of numbers are not a comparison
 between game versions.
 
+### Crafting menus
+
+With SkyUI, a crafting menu asks for the armor rating of every armor recipe in its list. Measured on the
+1.7.104 save above with the forge's list grown to 10,000 armor recipes (the save's own 729 forge recipes
+plus copies made in memory for the test; 7,759 shown), 2 opens each:
+
+| | 1.1.0 | 1.2.0 |
+|---|---|---|
+| Time frozen while the forge opens | 1.31 s | 0.65–0.67 s |
+| Until the menu appears | 0.81–0.83 s | 0.21–0.22 s |
+
+Most of what remains is SkyUI building its list, which a plugin cannot change. With the save's own
+729 forge recipes the forge opened without a freeze in both versions, so this matters only for very
+large recipe lists (many armor mods). Weapon recipes and the cooking pot hardly ask for armor ratings.
+
 ## Cause
 
 ![The three places where the game re-reads the whole inventory: armor perk conditions (54 full scans per armor piece, 1 with this plugin), worn armor per body slot (16 scans per item card, 1 with this plugin) and building the item list (N x N item visits, N with this plugin)](docs/images/how.png)
@@ -73,6 +89,9 @@ the whole inventory again and again, taking a lock for every extra-data list:
    (ID 16106) for row 0, 1, 2, ... until it returns nothing, and each call counts from the first item
    again. A list of N rows costs N x N item visits.
 
+In crafting menus with SkyUI, the armor rating of item 1 is asked for once per recipe in the list, so a
+list of N armor recipes costs N more full scans.
+
 The IDs above are Anniversary Edition IDs. 1.5.97 has the same functions under its own IDs (for example
 15866 for `GetInventoryItemAt`).
 
@@ -83,7 +102,9 @@ anything changing in between:
 
 1. Inside one `GetArmorValue` call the worn items cannot change. The first `VisitWornItems` call records
    the entries the game visits, and the later calls in the same `GetArmorValue` call replay that list to
-   the visitor (same entries, same order, same early-stop rule).
+   the visitor (same entries, same order, same early-stop rule). While a crafting menu rebuilds its
+   recipe list (AE ID 51401, SE ID 50510), the recorded list is kept for all the armor ratings of that
+   rebuild and dropped when it returns; the rebuild only reads the inventory.
 2. Inside one call of 51826, the worn-entry lookup runs on a list made of only the entries that have a
    worn (or worn-left) extra-data list, in their original order. Other entries can never be returned,
    and the only change the lookup can make (un-wearing a leveled item with a negative count) does nothing
@@ -96,8 +117,8 @@ anything changing in between:
    walk state in other places, so the two jumps have 1.5.97 variants there; 1.5.97 has five of the seven
    builders.
 
-Every cache lives for one call (or one list build) on one thread and is dropped afterwards. Each thread
-keeps its own. All other calls run the original code unchanged.
+Every cache lives for one call (or one list build, or one recipe-list rebuild) on one thread and is
+dropped afterwards. Each thread keeps its own. All other calls run the original code unchanged.
 
 ## Verified against the original code
 
@@ -109,6 +130,9 @@ checked this way:
 | 1.0.0 on 1.7.104 (the save above) | 17,743 | 145,750 | 16,608 | 6,249 | 0 |
 | 1.1.0 on 1.7.104 (the save above) | 22,090 | 151,262 | 21,264 | 9,476 | 0 |
 | 1.1.0 on 1.5.97 (the test setup above) | 3,433 | 121,758 | 37 | 8,011 | 0 |
+| 1.2.0 on 1.7.104 (the save above, forge with 10,000 recipes) | 10,276 | 462,082 | 1,928 | 2,332 | 0 |
+| 1.2.0 on 1.6.1170 (test setup with SkyUI, forge with 10,000 recipes) | 20,020 | 811,522 | 9,198 | 2,284 | 0 |
+| 1.2.0 on 1.5.97 (test setup with SkyUI, forge with 10,000 recipes) | 7,740 | 286,792 | 28 | – | 0 |
 
 1.0.0 was also checked with Inventory Refresh Fix loaded at the same time.
 
@@ -141,15 +165,18 @@ checked this way:
 
 ## Compatibility
 
-- Built and tested on Skyrim **1.7.104** (Anniversary Edition) and **1.5.97** (Special Edition). On other
-  versions every fix first checks the game code and turns itself off if it does not match; check the log
-  to see what was installed.
-- Tested with SkyUI on 1.7.104 and with the vanilla UI on 1.5.97.
+- Built and tested on Skyrim **1.7.104** and **1.6.1170** (Anniversary Edition) and **1.5.97** (Special
+  Edition). On other versions every fix first checks the game code and turns itself off if it does not
+  match; check the log to see what was installed.
+- Tested with SkyUI on all three, and with the vanilla UI on 1.5.97.
 - Inventory Refresh Fix and SkyUI Inventory Optimizer are not needed with this plugin. Inventory Refresh
   Fix can stay installed: both were run together and results stayed the same.
 
 ## Changes
 
+- **1.2.0**: Crafting menus with very large recipe lists: the armor rating of each recipe no longer
+  scans the whole inventory again (with SkyUI; about half the freeze at 10,000 armor recipes). Tested on
+  1.7.104, 1.6.1170 and 1.5.97.
 - **1.1.0**: Special Edition 1.5.97 support. Nothing changes on Anniversary Edition (1.6.x / 1.7.x), so
   there is no need to update there.
 - **1.0.0**: First release.
