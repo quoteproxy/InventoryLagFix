@@ -4,7 +4,7 @@
 <a href="LICENSE"><img src="https://img.shields.io/github/license/quoteproxy/InventoryLagFix" alt="MIT license"></a>
 <a href="https://buymeacoffee.com/quoteproxy"><img src="https://img.shields.io/badge/Buy_me_a_coffee-FFDD00?logo=buymeacoffee&logoColor=000" alt="Support on Buy Me a Coffee"></a>
 
-![Inventory Lag Fix: opening the inventory with 1,159 items freezes the game for 4.2 s in vanilla and 0.27 s with this plugin](docs/images/hero.png)
+![Inventory Lag Fix: the hoard stays, the freeze goes. Time frozen while the inventory opens on one real save (1,159 different items, 193 of them armor, matching-set armor perks, Skyrim 1.7.104 with SkyUI): 4.2 s in vanilla, 0.27 s with this plugin](docs/images/hero.png)
 
 An SKSE plugin for Skyrim Special Edition / Anniversary Edition (1.5.97, 1.6.x and 1.7.x). If you carry
 a lot of items, opening the inventory freezes the game for seconds, and the freeze grows quickly with
@@ -14,12 +14,14 @@ the inventory, and crafting menus with very large recipe lists.
 
 No ESP, no scripts, nothing is written to your save. You can add or remove it at any time.
 
+![Comic: a Nord with an overfull sack. In vanilla the inventory freezes for 4.2 s while his housecarl waits; with this plugin it opens with a 0.27 s freeze and the bucket he kept "just in case" is finally needed](docs/images/comic.png)
+
 ## Results
 
 Measured on a real save with 1,159 items (4,876 extra-data lists), Skyrim 1.7.104 with SkyUI.
 "Frozen" is the time the game spends in frames longer than 0.1 s.
 
-![Bar chart of the time the game is frozen, vanilla vs. with this plugin, for opening the inventory, equipping, unequipping and opening the favorites menu](docs/images/menus.png)
+![Bar chart of the time the game is frozen, vanilla vs. with this plugin, for opening the inventory, equipping, unequipping and opening the favorites menu, with the 1.5.97 and crafting-menu results below](docs/images/menus.png)
 
 | | Vanilla | With Inventory Lag Fix |
 |---|---|---|
@@ -31,7 +33,7 @@ Measured on a real save with 1,159 items (4,876 extra-data lists), Skyrim 1.7.10
 
 The same save trimmed to fewer items (time frozen while the inventory opens, average of 2 opens):
 
-![Line chart: the vanilla freeze climbs from 0 s at 110 items to 4.2 s at 1,159 items, while with this plugin it stays at 0 s up to 802 items and reaches 0.27 s at 1,159 items](docs/images/scaling.png)
+![Line chart: the vanilla freeze climbs from 0 s at 110 items to 4.2 s at 1,159 items (4,876 extra-data lists), while with this plugin it stays at 0 s up to 802 items and reaches 0.27 s at 1,159 items](docs/images/scaling.png)
 
 | Items | 44 | 110 | 256 | 405 | 605 | 802 | 1,002 | 1,159 |
 |---|---|---|---|---|---|---|---|---|
@@ -71,7 +73,7 @@ large recipe lists (many armor mods). Weapon recipes and the cooking pot hardly 
 
 ## Cause
 
-![The three places where the game re-reads the whole inventory: armor perk conditions (54 full scans per armor piece, 1 with this plugin), worn armor per body slot (16 scans per item card, 1 with this plugin) and building the item list (N x N item visits, N with this plugin)](docs/images/how.png)
+![The three places where the game re-reads the whole inventory: armor perk conditions (54 full passes per armor rating, 1 with this plugin), worn armor per body slot (16 per item card, 1 with this plugin) and building the item list (N x N item visits, N with this plugin). About 500 armor ratings x 54 passes over 4,876 extra-data lists per inventory open; the verify mode found 0 differences](docs/images/how.png)
 
 This was found by profiling and reverse engineering `SkyrimSE.exe` 1.7.104. Three places in the game read
 the whole inventory again and again, taking a lock for every extra-data list:
