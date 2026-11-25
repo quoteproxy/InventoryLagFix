@@ -12,6 +12,11 @@ every item you pick up. This plugin removes that freeze. It also covers the othe
 (containers, shops, gifting, the favorites menu), the list refresh after you equip something inside
 the inventory, and crafting menus with very large recipe lists.
 
+It is worst with armor perks that check what you are wearing (Matching Set, Well Fitted, Custom Fit and
+similar perks from the DLCs, the Unofficial Patch or perk overhauls), and with SkyUI. If your inventory
+already opens without a noticeable pause, there is little for this plugin to remove. Menu lag from other
+causes, such as icon mods or scripts, is not something it touches.
+
 No ESP, no scripts, nothing is written to your save. You can add or remove it at any time.
 
 ![Comic: a Nord with an overfull sack. In vanilla the inventory freezes for 4.2 s while his housecarl waits; with this plugin it opens with a 0.27 s freeze and the bucket he kept "just in case" is finally needed](docs/images/comic.png)
@@ -144,8 +149,16 @@ and 1.2.0 with SkyUI Inventory Optimizer (1.5.97 with SkyUI).
 - Nothing is patched unless every Address Library ID resolves and each hooked function (and the two
   jump points inside `GetInventoryItemAt`) matches the expected machine code. Each of the three fixes is
   installed only as a whole.
-- If another plugin already patched one of these places, that fix is skipped and the log says so.
+- If another plugin already patched one of these places, that fix is skipped and the log says so. A
+  plugin that patches the same place later, or replaces the whole function, can undo a fix without the
+  log showing it.
 - The result is written to `Documents\My Games\Skyrim Special Edition\SKSE\InventoryLagFix.log`.
+
+## If it doesn't seem to help
+
+Check the log first. If you report it (a GitHub issue or a comment on the Nexus Mods page), please include
+your game, SKSE and Address Library versions, the log, and your list of SKSE plugins (`skse64.log` in the
+same folder). The pinned comment on the Nexus Mods page has the details.
 
 ## Settings
 
@@ -170,7 +183,8 @@ and 1.2.0 with SkyUI Inventory Optimizer (1.5.97 with SkyUI).
 
 - Built and tested on Skyrim **1.7.104** and **1.6.1170** (Anniversary Edition) and **1.5.97** (Special
   Edition). On other versions every fix first checks the game code and turns itself off if it does not
-  match; check the log to see what was installed.
+  match; check the log to see what was installed. Tested with SKSE 2.3.1 (1.7.104), 2.2.6 (1.6.1170) and
+  2.0.20 (1.5.97).
 - Tested with SkyUI on all three, and with the vanilla UI on 1.5.97.
 - Inventory Refresh Fix and SkyUI Inventory Optimizer can stay installed. Each was run together with this
   plugin (Inventory Refresh Fix on 1.7.104, SkyUI Inventory Optimizer on 1.5.97 with SkyUI) and the verify
@@ -179,6 +193,8 @@ and 1.2.0 with SkyUI Inventory Optimizer (1.5.97 with SkyUI).
 - On the 1.7.104 save, adding Inventory Refresh Fix on top of this plugin did not change the times, except
   for the first inventory open after starting the game: Inventory Refresh Fix checks its own results once
   per session, which took about 0.5 s with or without this plugin (0.77 s instead of 0.30 s).
+- Skyrim VR: not supported for now. I don't own it, so I can't build or test for it. If I get it later,
+  I'll look into it.
 
 ## Changes
 
