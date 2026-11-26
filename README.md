@@ -4,7 +4,7 @@
 <a href="LICENSE"><img src="https://img.shields.io/github/license/quoteproxy/InventoryLagFix" alt="MIT license"></a>
 <a href="https://buymeacoffee.com/quoteproxy"><img src="https://img.shields.io/badge/Buy_me_a_coffee-FFDD00?logo=buymeacoffee&logoColor=000" alt="Support on Buy Me a Coffee"></a>
 
-![Inventory Lag Fix: the hoard stays, the freeze goes. Time frozen while the inventory opens on one real save (1,159 different items, 193 of them armor, matching-set armor perks, Skyrim 1.7.104 with SkyUI): 4.2 s in vanilla, 0.27 s with this plugin](docs/images/hero.png)
+![Inventory Lag Fix: time the game froze while the inventory opened, by number of different items, on one real save trimmed step by step (at most 1,159 items, 193 of them armor, matching-set armor perks, Skyrim 1.7.104 with SkyUI). Vanilla: 0 s up to 110 items, rising to 4.2 s at 1,159. With this plugin: 0 s up to 802 items, 0.27 s at 1,159](docs/images/hero.png)
 
 An SKSE plugin for Skyrim Special Edition / Anniversary Edition (1.5.97, 1.6.x and 1.7.x). If you carry
 a lot of items, opening the inventory freezes the game for seconds, and the freeze grows quickly with
@@ -37,8 +37,6 @@ Measured on a real save with 1,159 items (4,876 extra-data lists), Skyrim 1.7.10
 | Open the favorites menu | 0.48 s | under 0.1 s |
 
 The same save trimmed to fewer items (time frozen while the inventory opens, average of 2 opens):
-
-![Line chart: the vanilla freeze climbs from 0 s at 110 items to 4.2 s at 1,159 items (4,876 extra-data lists), while with this plugin it stays at 0 s up to 802 items and reaches 0.27 s at 1,159 items](docs/images/scaling.png)
 
 | Items | 44 | 110 | 256 | 405 | 605 | 802 | 1,002 | 1,159 |
 |---|---|---|---|---|---|---|---|---|
