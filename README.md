@@ -45,6 +45,9 @@ The same save trimmed to fewer items (time frozen while the inventory opens, ave
 
 The vanilla freeze grows much faster than the item count; with this plugin it stays small.
 
+TheAshlander also measured it on their own setup in a video:
+[How to Increase Skyrim's Performance](https://www.youtube.com/watch?v=TRD3cbXWdjk&t=488s) (from 8:08).
+
 ### Special Edition 1.5.97
 
 Measured on 1.5.97 without other mods (vanilla UI), with 1,142 items added from the console. Time frozen
